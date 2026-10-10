@@ -4,6 +4,7 @@ import { nudge } from "./numbers.ts";
 import { api } from "./api.ts";
 import { BOX_ROWS, TEXT_ROWS, currentOption, optionsFor, pretty, resolve, type Option, type RowSpec } from "./options.ts";
 import type { Location, Target, TextCandidate, WriteResult } from "../shared/types.ts";
+import { normalizeCompiled } from "../shared/selectors.ts";
 
 type Child = Node | string | null | undefined | false;
 function h<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string, any> = {}, ...children: Child[]): HTMLElementTagNameMap[K] {
@@ -75,6 +76,17 @@ function elementPath(el: Element): string {
     parts.unshift(`${n.tagName.toLowerCase()}:nth-of-type(${same.indexOf(n) + 1})`);
   }
   return ["body", ...parts].join(" > ");
+}
+
+/** The text position under a point, in whichever form the browser offers it. */
+function caretAt(x: number, y: number): { node: Node; offset: number } | null {
+  const d = document as Document & { caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null };
+  if (d.caretPositionFromPoint) {
+    const p = d.caretPositionFromPoint(x, y);
+    return p ? { node: p.offsetNode, offset: p.offset } : null;
+  }
+  const r = document.caretRangeFromPoint?.(x, y);
+  return r ? { node: r.startContainer, offset: r.startOffset } : null;
 }
 
 function toHex(color: string): string {
@@ -185,7 +197,7 @@ class Pointable extends HTMLElement {
         e.preventDefault();
         e.stopPropagation();
       }
-      if (e.type === "dblclick") this.editText();
+      if (e.type === "dblclick") this.editText({ x: pe.clientX, y: pe.clientY });
     }
   };
 
@@ -315,7 +327,7 @@ class Pointable extends HTMLElement {
     if (hasText) parts.push(section("Text", TEXT_ROWS));
     parts.push(section(hasText ? "Box" : "Style", BOX_ROWS));
 
-    const where = own ? `Saves to ${own.rule.selectorText}` : "Nothing styles this element directly yet. Select the element around it.";
+    const where = own ? `Saves to ${normalizeCompiled(own.rule.selectorText).replace(/([>+~,])/g, " $1 ").replace(/\s+/g, " ")}` : "Nothing styles this element directly yet. Select the element around it.";
     parts.push(h("div", { class: "foot" }, h("span", { class: "where", text: where, title: where }), this.undoButton));
 
     this.locate(bindings);
@@ -562,12 +574,26 @@ class Pointable extends HTMLElement {
 
   // Text
 
-  private editText() {
+  private editText(at?: { x: number; y: number }) {
     const el = this.selected;
     if (!el || !this.isTextBlock(el)) return this.toast("Select a single block of text to edit it", [], true);
     this.closeMenu();
     const html = el.innerHTML;
     const before = normText(el.innerText);
+
+    // Where the caret goes: where the double-click landed, else the end.
+    let offset = before.length;
+    const pos = at && caretAt(at.x, at.y);
+    if (pos && el.contains(pos.node)) {
+      const r = document.createRange();
+      r.setStart(el, 0);
+      r.setEnd(pos.node, pos.offset);
+      offset = Math.min(before.length, r.toString().replace(/\s+/g, " ").trimStart().length);
+    }
+
+    // Edit it as plain text, so it wraps like the element itself does even when it is
+    // built from styled pieces (one span per word, say). Its own styling returns once saved.
+    el.textContent = before;
     this.textEl = el;
     try {
       el.contentEditable = "plaintext-only";
@@ -575,10 +601,11 @@ class Pointable extends HTMLElement {
       el.contentEditable = "true";
     }
     el.focus();
-    const range = document.createRange();
-    range.selectNodeContents(el);
+    const caret = document.createRange();
+    caret.setStart(el.firstChild ?? el, el.firstChild ? offset : 0);
+    caret.collapse(true);
     getSelection()?.removeAllRanges();
-    getSelection()?.addRange(range);
+    getSelection()?.addRange(caret);
 
     const finish = (save: boolean) => {
       el.removeEventListener("keydown", keys, true);
@@ -600,7 +627,10 @@ class Pointable extends HTMLElement {
         finish(false);
       }
     };
-    const blur = () => finish(true);
+    // Switching to another window is not "done": keep editing until a click elsewhere on the page or in the panel.
+    const blur = () => {
+      if (document.hasFocus()) finish(true);
+    };
     el.addEventListener("keydown", keys, true);
     el.addEventListener("blur", blur);
   }

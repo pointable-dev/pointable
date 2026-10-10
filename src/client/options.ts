@@ -187,5 +187,5 @@ export function currentOption(prop: string, kind: Kind, options: Option[], speci
   }
   const value = specified || computed;
   const resolved = resolve(prop, value);
-  return options.find((o) => sameValue(o.value, value)) ?? options.find((o) => o.group === "Values" && resolve(prop, o.value) === resolved);
+  return options.find((o) => sameValue(o.value, value)) ?? options.find((o) => resolve(prop, o.value) === resolved);
 }

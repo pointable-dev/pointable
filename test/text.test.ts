@@ -69,3 +69,20 @@ test("escapes for markup, attributes and frontmatter", () => {
   assert.equal(escapeFor("a.astro", '---\nconst t = "x";\n---\n', 15, 'a "b"'), 'a \\"b\\"');
   assert.equal(escapeFor("a.json", '{"t": "x"}', 7, 'a "b"'), 'a \\"b\\"');
 });
+
+test("edits one part of text that is put together from two props", async () => {
+  const page = '<PageIntro title="I want to design what I use every day" copy="I am very particular in what I like and use." />\n';
+  const { store, read } = await project({ "src/pages/make.astro": page });
+  const visible = "I want to design what I use every day. I am very particular in what I like and use.";
+  const r = await store.text(visible, "I want to design what I use every day. I am very picky about what I like and use.");
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(await read("src/pages/make.astro"), page.replace("very particular in what", "very picky about what"));
+});
+
+test("leaves out closing punctuation the template adds", async () => {
+  const page = '<PageIntro title="I want to design what I use every day" copy="Ideas and materials." />\n';
+  const { store, read } = await project({ "src/pages/make.astro": page });
+  const r = await store.text("I want to design what I use every day. Ideas and materials.", "I want to design what I use daily. Ideas and materials.");
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(await read("src/pages/make.astro"), page.replace("what I use every day", "what I use daily"));
+});

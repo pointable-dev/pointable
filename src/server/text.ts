@@ -62,45 +62,116 @@ function char(ch: string): string {
   }
 }
 
-/** A pattern for visible text that tolerates how it is wrapped, indented and escaped in source. */
+export const words = (s: string) => s.replace(/\u00a0/g, " ").trim().split(/\s+/).filter(Boolean);
+
+/**
+ * A pattern for visible text that tolerates how it is wrapped, indented and escaped in source.
+ * Closing punctuation is optional, since templates often add it (`{title}.`).
+ */
 export function textPattern(visible: string): RegExp | null {
-  const words = visible.replace(/ /g, " ").trim().split(/\s+/).filter(Boolean);
-  if (!words.length) return null;
-  const body = words.map((w) => [...w].map(char).join("")).join("(?:\\s|&nbsp;|\\\\n)+");
-  const first = /\w/.test(words[0][0]) ? "(?<![\\w])" : "";
-  const lastWord = words[words.length - 1];
-  const last = /\w/.test(lastWord[lastWord.length - 1]) ? "(?![\\w])" : "";
+  const list = words(visible);
+  if (!list.length) return null;
+  const parts = list.map((w) => [...w].map(char).join(""));
+  const lastWord = list[list.length - 1];
+  const closing = /[.,;:!?]$/.exec(lastWord);
+  if (closing && lastWord.length > 1) parts[parts.length - 1] = [...lastWord.slice(0, -1)].map(char).join("") + `(?:${char(closing[0])})?`;
+  const body = parts.join("(?:\\s|&nbsp;|\\\\n)+");
+  const first = /\w/.test(list[0][0]) ? "(?<![\\w])" : "";
+  const last = /\w/.test(lastWord.replace(/[.,;:!?]$/, "").slice(-1)) ? "(?![\\w])" : "";
   return new RegExp(first + body + last, "g");
 }
 
-/** Every place in the project's source where this visible text is written. */
-export async function findText(root: string, visible: string, limit = 12): Promise<TextHit[]> {
-  const pattern = textPattern(visible);
-  if (!pattern) return [];
-  const hits: TextHit[] = [];
+export interface Source {
+  file: string;
+  text: string;
+}
+
+/** The project's text files, read once per edit. */
+export async function loadSources(root: string): Promise<Source[]> {
+  const out: Source[] = [];
   for await (const file of files(root)) {
     try {
       if ((await stat(file)).size > MAX_BYTES) continue;
-      const text = await readFile(file, "utf8");
-      for (const m of text.matchAll(pattern)) {
-        const start = m.index!;
-        const end = start + m[0].length;
-        const lineStart = text.lastIndexOf("\n", start) + 1;
-        const lineEnd = text.indexOf("\n", end);
-        hits.push({
-          file,
-          start,
-          end,
-          line: text.slice(0, start).split("\n").length,
-          context: text.slice(lineStart, lineEnd < 0 ? undefined : lineEnd).trim().slice(0, 160),
-        });
-        if (hits.length >= limit) return hits;
-      }
+      out.push({ file, text: await readFile(file, "utf8") });
     } catch {
       // unreadable file: skip
     }
   }
+  return out;
+}
+
+/** Every place in the project's source where this visible text is written. */
+export async function findText(root: string, visible: string, limit = 12): Promise<TextHit[]> {
+  return search(await loadSources(root), visible, limit);
+}
+
+export function search(sources: Source[], visible: string, limit = 12): TextHit[] {
+  const pattern = textPattern(visible);
+  if (!pattern) return [];
+  const hits: TextHit[] = [];
+  for (const { file, text } of sources) {
+    for (const m of text.matchAll(pattern)) {
+      const start = m.index!;
+      const end = start + m[0].length;
+      const lineStart = text.lastIndexOf("\n", start) + 1;
+      const lineEnd = text.indexOf("\n", end);
+      hits.push({
+        file,
+        start,
+        end,
+        line: text.slice(0, start).split("\n").length,
+        context: text.slice(lineStart, lineEnd < 0 ? undefined : lineEnd).trim().slice(0, 160),
+      });
+      if (hits.length >= limit) return hits;
+    }
+  }
   return hits;
+}
+
+export interface Plan {
+  /** The stretch of visible text to look for, and what it becomes. */
+  before: string;
+  after: string;
+  hits: TextHit[];
+}
+
+/**
+ * Decide what to replace. Ideally the whole text is written in one place. When it isn't (a heading
+ * put together from two props, say), narrow to the words that changed, widened with neighbouring
+ * words only as far as needed to find them in exactly one place.
+ */
+export function plan(sources: Source[], before: string, after: string): Plan {
+  const whole = search(sources, before);
+  if (whole.length) return { before, after, hits: whole };
+
+  const b = words(before);
+  const a = words(after);
+  let p = 0;
+  while (p < b.length && p < a.length && b[p] === a[p]) p++;
+  let s = 0;
+  while (s < b.length - p && s < a.length - p && b[b.length - 1 - s] === a[a.length - 1 - s]) s++;
+  const end = b.length - s;
+  const make = (l: number, r: number, hits: TextHit[]): Plan => ({
+    before: b.slice(l, r).join(" "),
+    after: [...b.slice(l, p), ...a.slice(p, a.length - s), ...b.slice(end, r)].join(" "),
+    hits,
+  });
+
+  let several: Plan | null = null;
+  for (let size = Math.max(1, end - p); size <= b.length; size++) {
+    let any = false;
+    for (let l = Math.max(0, end - size); l <= Math.min(p, b.length - size); l++) {
+      const hits = search(sources, b.slice(l, l + size).join(" "));
+      if (hits.length === 1) return make(l, l + size, hits);
+      if (hits.length) {
+        any = true;
+        several ??= make(l, l + size, hits);
+      }
+    }
+    // A longer stretch can only be found in fewer places; once nothing is found, nothing longer will be.
+    if (!any) break;
+  }
+  return several ?? { before, after, hits: [] };
 }
 
 /** Inside a JS/TS string literal on this line? Returns its quote character. */

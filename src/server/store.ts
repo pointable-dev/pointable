@@ -4,7 +4,7 @@ import type { Edit, Location, Target, TextResult, UndoResult, WriteResult } from
 import { sameValue } from "../shared/selectors.ts";
 import { fileFromDevId, region, type Region } from "./source.ts";
 import { locate, splice, type Found } from "./locate.ts";
-import { escapeFor, findText } from "./text.ts";
+import { escapeFor, loadSources, plan } from "./text.ts";
 
 interface Batch {
   at: string;
@@ -116,7 +116,8 @@ export class Store {
    */
   text(before: string, after: string, choice?: { file: string; start: number }): Promise<TextResult> {
     return this.serial(async () => {
-      const hits = await findText(this.root, before);
+      const found = plan(await loadSources(this.root), before, after);
+      const { hits } = found;
       if (!hits.length) return { ok: false, reason: "this text isn't written anywhere in the project's source as it appears (it may be generated)" };
       const hit = choice ? hits.find((h) => h.file === choice.file && h.start === choice.start) : hits.length === 1 ? hits[0] : undefined;
       if (!hit) {
@@ -124,10 +125,14 @@ export class Store {
         return { ok: false, candidates: hits.map(({ file, start, line, context }) => ({ file, start, line, context })) };
       }
       const old = await readFile(hit.file, "utf8");
-      const next = old.slice(0, hit.start) + escapeFor(hit.file, old, hit.start, after) + old.slice(hit.end);
+      let replacement = found.after;
+      // The page added closing punctuation that the source leaves out: leave it out of the new text too.
+      const closing = /[.,;:!?]$/.exec(found.before)?.[0];
+      if (closing && !old.slice(hit.start, hit.end).endsWith(closing) && replacement.endsWith(closing)) replacement = replacement.slice(0, -1);
+      const next = old.slice(0, hit.start) + escapeFor(hit.file, old, hit.start, replacement) + old.slice(hit.end);
       await writeFile(hit.file, next);
       this.undoStack.push({ at: new Date().toISOString(), files: [{ file: hit.file, before: old, after: next }] });
-      await this.history([{ at: new Date().toISOString(), file: path.relative(this.root, hit.file), line: hit.line, property: "text", before, after }]);
+      await this.history([{ at: new Date().toISOString(), file: path.relative(this.root, hit.file), line: hit.line, property: "text", before: found.before, after: replacement }]);
       return { ok: true, written: { file: hit.file, line: hit.line } };
     });
   }
