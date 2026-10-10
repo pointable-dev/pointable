@@ -1,0 +1,32 @@
+@font-face {
+  font-family: "Serif";
+  font-weight: 600;
+  src: url("/fonts/serif.woff2") format("woff2");
+}
+
+:root {
+  --paper: #f2f0e9;
+  --ink: #171714;
+  --muted: #69675f;
+  --gutter: clamp(1.1rem, 3vw, 3.2rem);
+  /* The type scale, shared by every page. */
+  --type-title: clamp(2.2rem, 3.8vw, 4rem);        /* an item's title in a list */
+  --type-body: 1.05rem;                            /* descriptions under titles */
+  --type-small: .95rem;                            /* links and asides */
+  color: var(--ink);
+}
+
+body { margin: 0; background: var(--paper); }
+.page-shell { width: min(calc(100% - 2 * var(--gutter)), 92rem); margin-inline: auto; }
+
+.site-header { width: 100%; margin: 0 auto; min-height: 7.5rem; display: flex; gap: 2rem; }
+/* Sticky, and out of the way while reading. */
+.site-header { position: sticky; top: 0; z-index: 10; background: var(--paper); translate: 0 calc(-1px * var(--offset, 0)); }
+.site-header.is-away { translate: 0 -100%; transition: translate .35s cubic-bezier(.2,.7,.2,1); }
+.site-header nav a { color: var(--muted); text-decoration: none; }
+.site-header nav a[aria-current="page"] { text-decoration: underline; }
+
+@media (max-width: 760px) {
+  .page-shell { width: 100%; }
+  .site-header { min-height: 5rem; }
+}

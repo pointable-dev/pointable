@@ -1,0 +1,10 @@
+{
+  "name": "pointable",
+  "version": "0.1.0",
+  "description": "Point at anything on your local site and change it: type, colour, spacing, radius. Edits are written straight back to your source files.",
+  "author": { "name": "apapez", "url": "https://apapez.com" },
+  "homepage": "https://pointable.dev",
+  "repository": "https://github.com/pointable-dev/pointable",
+  "license": "MIT",
+  "keywords": ["visual-editing", "css", "design-tokens", "vite", "astro", "devtools"]
+}

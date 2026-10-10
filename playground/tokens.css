@@ -1,0 +1,13 @@
+:root {
+  --paper: #f4f1ea;
+  --ink: #1c1b18;
+  --muted: #6f6c64;
+  --signal: #e64b2f;
+  --type-title: 3.2rem;
+  --type-lead: 1.25rem;
+  --type-body: 1rem;
+  --space-1: .5rem;
+  --space-2: 1rem;
+  --space-3: 2rem;
+  --radius: 10px;
+}

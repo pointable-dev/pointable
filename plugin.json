@@ -1,0 +1,25 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "pointable",
+  "version": "0.1.0",
+  "description": "Point at anything on your local site and change it. Edits are written straight back to your source files.",
+  "author": { "name": "apapez", "url": "https://apapez.com" },
+  "homepage": "https://pointable.dev",
+  "repository": "https://github.com/pointable-dev/pointable",
+  "license": "MIT",
+  "keywords": ["visual-editing", "css", "design-tokens", "vite", "astro", "devtools"],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Pointable",
+        "shortDescription": "Point at anything on your local site and change it",
+        "longDescription": "Adds a small overlay to your dev server. Click an element, change its type, colour, spacing or radius, and the change is written to the stylesheet or design token that sets it. Undo takes it back out.",
+        "developerName": "apapez",
+        "category": "Developer Tools",
+        "capabilities": ["Read", "Write"],
+        "websiteURL": "https://pointable.dev",
+        "defaultPrompt": ["Set up Pointable in this project."]
+      }
+    }
+  }
+}

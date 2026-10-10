@@ -1,0 +1,18 @@
+---
+const { title } = Astro.props;
+---
+<section class="title-intro">
+  <ol class="title-numbers"><li>1</li></ol>
+  <h1>{title}</h1>
+</section>
+
+<style>
+  .title-intro { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); min-height: 62vh; }
+  .title-intro h1 { grid-column: 2 / span 10; margin: 0; font: 700 clamp(2.2rem, 4.6vw, 5rem)/1.02 Inter, sans-serif; letter-spacing: -.035em; }
+  .title-numbers { margin: 0; padding: 0; list-style: none; }
+  .title-numbers :global(li) { height: var(--lh, 1em); display: flex; }
+
+  @media (max-width: 760px) {
+    .title-intro h1 { grid-column: 1 / -1; }
+  }
+</style>

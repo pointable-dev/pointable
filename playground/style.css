@@ -1,0 +1,25 @@
+body { margin: 0; background: var(--paper); color: var(--ink); font-family: system-ui, sans-serif; }
+.page { max-width: 56rem; margin: 0 auto; padding: var(--space-3) var(--space-2); }
+.kicker { color: var(--signal); text-transform: uppercase; letter-spacing: .08em; font-size: .8rem; }
+.title { font-size: var(--type-title); line-height: 1.05; margin: 0 0 var(--space-2); }
+.lead { font-size: var(--type-lead); color: var(--muted); max-width: 40ch; }
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.card {
+  background: white;
+  border-radius: var(--radius);
+  padding: var(--space-2);
+}
+.card h2 { margin: 0 0 var(--space-1); font-size: 1.1rem; }
+.card p { margin: 0; font-size: var(--type-body); }
+.card.accent { background: var(--ink); color: var(--paper); }
+
+@media (max-width: 700px) {
+  .cards { grid-template-columns: 1fr; }
+}

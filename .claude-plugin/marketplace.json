@@ -1,0 +1,12 @@
+{
+  "name": "pointable",
+  "description": "Pointable: point at anything on your local site and change it.",
+  "owner": { "name": "apapez", "url": "https://pointable.dev" },
+  "plugins": [
+    {
+      "name": "pointable",
+      "source": "./",
+      "description": "Point at anything on your local site and change it. Edits are written straight back to your source files."
+    }
+  ]
+}

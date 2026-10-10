@@ -1,0 +1,49 @@
+{
+  "name": "pointable",
+  "version": "0.1.0",
+  "description": "Point at anything on your local site and change it. Edits are written straight back to your source.",
+  "type": "module",
+  "author": "apapez",
+  "license": "MIT",
+  "homepage": "https://pointable.dev",
+  "repository": "github:pointable-dev/pointable",
+  "keywords": [
+    "vite-plugin",
+    "devtools",
+    "visual-editing",
+    "css",
+    "design-tokens",
+    "claude-code",
+    "codex"
+  ],
+  "exports": {
+    "./vite": {
+      "types": "./dist/vite.d.ts",
+      "default": "./dist/vite.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/build.mjs --watch",
+    "test": "node --test --experimental-strip-types --no-warnings test/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "playground": "vite playground",
+    "prepare": "node scripts/build.mjs"
+  },
+  "peerDependencies": {
+    "vite": ">=5"
+  },
+  "dependencies": {
+    "postcss": "^8.4.47"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.9.2",
+    "vite": "^7.0.0"
+  }
+}
