@@ -1,9 +1,9 @@
 import { styles } from "./styles.ts";
-import { collect, describe, firstVar, matching, rootTokens, target, tokenSource, winner, type Hit, type Match } from "./cssom.ts";
+import { collect, describe, firstVar, matching, ownClass, rootTokens, target, tokenSource, winner, type Hit, type Match } from "./cssom.ts";
 import { nudge } from "./numbers.ts";
 import { api } from "./api.ts";
-import { BOX_ROWS, TEXT_ROWS, currentOption, optionsFor, pretty, resolve, type Option, type RowSpec } from "./options.ts";
-import type { Location, Target, TextCandidate, WriteResult } from "../shared/types.ts";
+import { BOX_ROWS, IMAGE_ROWS, TEXT_ROWS, currentOption, optionsFor, pretty, resolve, type Option, type RowSpec } from "./options.ts";
+import { PROTOCOL, type Location, type NewRule, type Target, type TextCandidate, type WriteResult } from "../shared/types.ts";
 import { normalizeCompiled } from "../shared/selectors.ts";
 
 type Child = Node | string | null | undefined | false;
@@ -108,6 +108,10 @@ class Pointable extends HTMLElement {
   private projectRoot = "";
   private undoCount = 0;
   private menuClose: (() => void) | null = null;
+  /** Rules added to the page's stylesheets to preview a rule that will be written on first save. */
+  private previewRules = new Map<string, CSSStyleRule>();
+  /** The dev server still runs an older Pointable than this overlay; saving could go wrong until it restarts. */
+  private outdated = false;
 
   private hoverBox = h("div", { class: "box hover", hidden: true });
   private hoverTag = h("div", { class: "tag", hidden: true });
@@ -133,6 +137,7 @@ class Pointable extends HTMLElement {
       (s) => {
         this.projectRoot = s.root;
         this.setUndo(s.undo);
+        this.outdated = (s.protocol ?? 1) < PROTOCOL;
       },
       () => {},
     );
@@ -298,6 +303,7 @@ class Pointable extends HTMLElement {
     const cs = getComputedStyle(el);
     const tokens = rootTokens(hits);
     const own = [...matches].reverse().find((m) => m.specificity[0] + m.specificity[1] > 0) ?? (el === document.documentElement || el === document.body ? matches[matches.length - 1] : undefined);
+    const fresh = own ? null : this.newRuleFor(el, matchesOf);
     const bindings: Binding[] = [];
     const tag = el.tagName.toLowerCase();
     const hasText = !!normText((el as HTMLElement).innerText ?? "");
@@ -321,13 +327,16 @@ class Pointable extends HTMLElement {
     }
 
     const section = (title: string, specs: RowSpec[]) => {
-      const rows = specs.filter((s) => s.prop !== "gap" || /flex|grid/.test(cs.display)).map((s) => this.row(el, s, matches, own, cs, tokens, matchesOf, bindings));
+      const rows = specs.filter((s) => s.prop !== "gap" || /flex|grid/.test(cs.display)).map((s) => this.row(el, s, matches, own, fresh, cs, tokens, matchesOf, bindings));
       return h("div", { class: "group" }, h("h3", { text: title }), ...rows);
     };
+    if (/^(img|video|canvas|svg|picture)$/.test(tag)) parts.push(section("Image", IMAGE_ROWS));
     if (hasText) parts.push(section("Text", TEXT_ROWS));
     parts.push(section(hasText ? "Box" : "Style", BOX_ROWS));
 
-    const where = own ? `Saves to ${normalizeCompiled(own.rule.selectorText).replace(/([>+~,])/g, " $1 ").replace(/\s+/g, " ")}` : "Nothing styles this element directly yet. Select the element around it.";
+    const where = fresh
+      ? `Saves to a new rule, ${fresh.label}, for ${fresh.count === 1 ? "this element" : `these ${fresh.count} elements`}`
+      : own ? `Saves to ${normalizeCompiled(own.rule.selectorText).replace(/([>+~,])/g, " $1 ").replace(/\s+/g, " ")}` : "Nothing styles this element directly yet. Select the element around it.";
     parts.push(h("div", { class: "foot" }, h("span", { class: "where", text: where, title: where }), this.undoButton));
 
     this.locate(bindings);
@@ -339,6 +348,7 @@ class Pointable extends HTMLElement {
     spec: RowSpec,
     matches: Match[],
     own: Match | undefined,
+    fresh: { outer: Match; create: NewRule } | null,
     cs: CSSStyleDeclaration,
     tokens: Map<string, { value: string; match: Match }>,
     matchesOf: (n: Element) => Match[],
@@ -351,7 +361,7 @@ class Pointable extends HTMLElement {
     const writeTo = w ?? own;
     const row = h("div", { class: "row" }, h("span", { class: "label", text: spec.label }));
 
-    if (!writeTo) {
+    if (!writeTo && !fresh) {
       row.append(h("div", { class: "ctl" }, h("button", { class: "pick", disabled: true, title: "Nothing styles this element directly. Select the element around it." }, h("span", { class: "val", text: computed }))));
       return row;
     }
@@ -366,7 +376,7 @@ class Pointable extends HTMLElement {
     }
 
     const options = optionsFor(prop, kind, specified || computed, tokens);
-    const b: Binding = { t: target(writeTo, prop), base: specified, value: specified || computed };
+    const b: Binding = { t: writeTo ? target(writeTo, prop) : { ...target(fresh!.outer, prop), create: fresh!.create }, base: specified, value: specified || computed };
     bindings.push(b);
 
     // The token behind the value, if any: the dropdown can change it everywhere.
@@ -636,6 +646,10 @@ class Pointable extends HTMLElement {
   }
 
   private async saveText(el: HTMLElement, html: string, before: string, after: string, choice?: TextCandidate): Promise<void> {
+    if (this.outdated) {
+      el.innerHTML = html;
+      return this.toast("Pointable was updated: restart your dev server to save changes", [], true);
+    }
     let r;
     try {
       r = await api.text(before, after, choice && { file: choice.file, start: choice.start });
@@ -677,7 +691,51 @@ class Pointable extends HTMLElement {
 
   private liveRule(t: Target): CSSStyleRule | null {
     const k = pathKey(t);
-    return this.rules().find((hit) => pathKey(hit) === k)?.rule ?? null;
+    const outer = this.rules().find((hit) => pathKey(hit) === k)?.rule ?? null;
+    if (!t.create || !outer) return outer;
+    // A rule that isn't written yet: preview it in a rule added right after the outer one.
+    const key = `${k}|${t.create.tail}`;
+    const existing = this.previewRules.get(key);
+    if (existing?.parentStyleSheet?.ownerNode?.isConnected) return existing;
+    const sheet = outer.parentStyleSheet;
+    const index = sheet ? Array.from(sheet.cssRules).indexOf(outer) : -1;
+    if (!sheet || index < 0) return null;
+    try {
+      sheet.insertRule(`${t.create.part} ${t.create.tail} {}`, index + 1);
+    } catch {
+      return null;
+    }
+    const rule = sheet.cssRules[index + 1] as CSSStyleRule;
+    this.previewRules.set(key, rule);
+    return rule;
+  }
+
+  /**
+   * For an element no rule targets: a new rule inside the nearest element around it that has one,
+   * e.g. `.product-stage img`. Scoped component styles reach a child component's element with `:global()`/`:deep()`.
+   */
+  private newRuleFor(el: Element, matchesOf: (n: Element) => Match[]): { outer: Match; create: NewRule; label: string; count: number } | null {
+    if (el === document.body || el === document.documentElement) return null;
+    for (let p = el.parentElement; p && p !== document.documentElement; p = p.parentElement) {
+      const candidates = matchesOf(p).filter((m) => m.specificity[0] + m.specificity[1] > 0 && !m.path.some((s) => s.kind === "at"));
+      const outer = candidates[candidates.length - 1];
+      if (!outer) continue;
+      const cls = ownClass(el);
+      const tail = cls ? `.${CSS.escape(cls)}` : el.tagName.toLowerCase();
+      let wrap: NewRule["wrap"] = null;
+      const astro = /\[data-astro-cid-([\w-]+)\]/.exec(outer.part)?.[1];
+      const svelte = /\.(svelte-[\w-]+)/.exec(outer.part)?.[1];
+      const vue = /\[(data-v-[\w-]+)\]/.exec(outer.part)?.[1];
+      if (astro && !el.hasAttribute(`data-astro-cid-${astro}`)) wrap = "global";
+      else if (svelte && !el.classList.contains(svelte)) wrap = "global";
+      else if (vue && !el.hasAttribute(vue)) wrap = "deep";
+      let count = 1;
+      try {
+        count = document.querySelectorAll(`${outer.part} ${tail}`).length || 1;
+      } catch {}
+      return { outer, create: { part: outer.part, tail, wrap }, label: `${normalizeCompiled(outer.part)} ${tail}`, count };
+    }
+    return null;
   }
 
   private preview(t: Target, value: string) {
@@ -690,6 +748,7 @@ class Pointable extends HTMLElement {
   private async commit(b: Binding, raw: string, force = false): Promise<void> {
     const value = raw.trim();
     if (!value || (value === b.base && !force)) return;
+    if (this.outdated) return this.toast("Pointable was updated: restart your dev server to save changes", [], true);
     let result: WriteResult;
     try {
       result = await api.write([{ ...b.t, value, expect: b.base || undefined, force }]);

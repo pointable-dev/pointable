@@ -13,6 +13,20 @@ export interface Target {
   path: PathSeg[];
   nth: number;
   property: string;
+  /**
+   * Nothing targets the element yet: `path` points at a rule for an element around it, and the edit
+   * goes into a new rule written right after that one, `<part> <tail>`, created on first save.
+   */
+  create?: NewRule;
+}
+
+export interface NewRule {
+  /** The matching part of the outer rule's selector, as the browser has it. */
+  part: string;
+  /** What picks out the element inside it: its class or tag. */
+  tail: string;
+  /** Scoped component styles reach into a child component with `:global()` (Astro, Svelte) or `:deep()` (Vue). */
+  wrap: "global" | "deep" | null;
 }
 
 export interface Edit extends Target {
@@ -66,3 +80,6 @@ export interface TextResult {
   candidates?: TextCandidate[];
   reason?: string;
 }
+
+/** Bumped when the overlay starts relying on something the server must understand. */
+export const PROTOCOL = 2;

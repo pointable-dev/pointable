@@ -3,7 +3,7 @@ import path from "node:path";
 import type { Edit, Location, Target, TextResult, UndoResult, WriteResult } from "../shared/types.ts";
 import { sameValue } from "../shared/selectors.ts";
 import { fileFromDevId, region, type Region } from "./source.ts";
-import { locate, splice, type Found } from "./locate.ts";
+import { locate, locateNew, splice, type Found } from "./locate.ts";
 import { escapeFor, loadSources, plan } from "./text.ts";
 
 interface Batch {
@@ -44,7 +44,7 @@ export class Store {
     if (typeof reg === "string") return reg;
     const found = locate(reg, target);
     if (typeof found === "string") return found;
-    return { reg, text, found };
+    return { reg, text, found: target.create ? locateNew(reg, found, target) : found };
   }
 
   async locate(targets: Target[]): Promise<Location[]> {

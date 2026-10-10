@@ -144,3 +144,46 @@ test("specificity", () => {
   assert.deepEqual(specificity('a[aria-current="page"]'), [0, 1, 1]);
   assert.deepEqual(specificity("*"), [0, 0, 0]);
 });
+
+test("writes a new rule for an element nothing targets, beside the rule around it, and reuses it after", async () => {
+  const { store, css } = await project();
+  const before = await readFile(css, "utf8");
+  const edit: Edit = {
+    devId: css,
+    path: [{ kind: "rule", selector: ".page-shell" }],
+    nth: 0,
+    property: "border-radius",
+    value: "8px",
+    create: { part: ".page-shell", tail: "img", wrap: null },
+  };
+  const r = await store.write([edit]);
+  assert.equal(r.ok, true, JSON.stringify(r));
+  const after = await readFile(css, "utf8");
+  const line = ".page-shell { width: min(calc(100% - 2 * var(--gutter)), 92rem); margin-inline: auto; }";
+  assert.equal(after, before.replace(line, `${line}\n.page-shell img { border-radius: 8px; }`));
+  assert.equal(r.written[0].line, lineOf(after, ".page-shell img"));
+
+  // A second change finds the rule it made instead of writing another.
+  const again = await store.write([{ ...edit, property: "border-radius", value: "12px" }, { ...edit, property: "aspect-ratio", value: "4 / 3" }]);
+  assert.equal(again.ok, true, JSON.stringify(again));
+  assert.equal(await readFile(css, "utf8"), before.replace(line, `${line}\n.page-shell img { border-radius: 12px; aspect-ratio: 4 / 3; }`));
+});
+
+test("a new rule in a scoped component reaches a child component's element with :global()", async () => {
+  const { store, astro } = await project();
+  const before = await readFile(astro, "utf8");
+  const devId = `${astro}?astro&type=style&index=0&lang.css`;
+  const r = await store.write([
+    {
+      devId,
+      path: [{ kind: "rule", selector: ".title-intro[data-astro-cid-x]" }],
+      nth: 0,
+      property: "border-radius",
+      value: "6px",
+      create: { part: ".title-intro[data-astro-cid-x]", tail: "img", wrap: "global" },
+    },
+  ]);
+  assert.equal(r.ok, true, JSON.stringify(r));
+  const line = "  .title-intro { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); min-height: 62vh; }";
+  assert.equal(await readFile(astro, "utf8"), before.replace(line, `${line}\n  .title-intro :global(img) { border-radius: 6px; }`));
+});

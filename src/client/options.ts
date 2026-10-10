@@ -16,7 +16,7 @@ export interface Option {
   group: "Tokens" | "Values" | "Fonts";
 }
 
-export type Kind = "scale" | "color" | "font" | "weight";
+export type Kind = "scale" | "color" | "font" | "weight" | "choice";
 
 export interface RowSpec {
   prop: string;
@@ -40,6 +40,38 @@ export const BOX_ROWS: RowSpec[] = [
   { prop: "margin", label: "Outer space", kind: "scale" },
   { prop: "gap", label: "Gap", kind: "scale" },
 ];
+
+export const IMAGE_ROWS: RowSpec[] = [
+  { prop: "aspect-ratio", label: "Shape", kind: "choice" },
+  { prop: "object-fit", label: "Fit", kind: "choice" },
+  { prop: "object-position", label: "Focus", kind: "choice" },
+];
+
+/** Fixed choices, for properties without a scale. */
+const CHOICES: Record<string, [string, string][]> = {
+  "aspect-ratio": [
+    ["Original", "auto"],
+    ["Square", "1 / 1"],
+    ["Landscape 4:3", "4 / 3"],
+    ["Landscape 3:2", "3 / 2"],
+    ["Wide 16:9", "16 / 9"],
+    ["Portrait 3:4", "3 / 4"],
+    ["Portrait 2:3", "2 / 3"],
+  ],
+  "object-fit": [
+    ["Fill the frame (crop)", "cover"],
+    ["Show it all", "contain"],
+    ["Stretch", "fill"],
+    ["Actual size", "none"],
+  ],
+  "object-position": [
+    ["Center", "50% 50%"],
+    ["Top", "50% 0%"],
+    ["Bottom", "50% 100%"],
+    ["Left", "0% 50%"],
+    ["Right", "100% 50%"],
+  ],
+};
 
 const WEIGHTS: Record<number, string> = { 100: "Thin", 200: "Extra light", 300: "Light", 400: "Regular", 500: "Medium", 600: "Semibold", 700: "Bold", 800: "Extra bold", 900: "Black" };
 
@@ -126,6 +158,7 @@ function isColor(value: string) {
 /** The dropdown's choices for a property: matching tokens first, then presets. */
 export function optionsFor(prop: string, kind: Kind, current: string, tokens: Map<string, { value: string }>): Option[] {
   if (kind === "font") return fonts(current);
+  if (kind === "choice") return (CHOICES[prop] ?? []).map(([label, value]) => ({ label, value, group: "Values" as const }));
   if (kind === "weight") return weights(current);
 
   const out: Option[] = [];
@@ -185,7 +218,9 @@ export function currentOption(prop: string, kind: Kind, options: Option[], speci
     const first = (s: string) => s.split(",")[0].trim().replace(/^["']|["']$/g, "").toLowerCase();
     return options.find((o) => first(o.value) === first(specified || computed));
   }
-  const value = specified || computed;
+  let value = specified || computed;
+  // An image's computed shape is "auto 1600 / 870": its own proportions.
+  if (prop === "aspect-ratio" && /^auto\b/.test(value)) value = "auto";
   const resolved = resolve(prop, value);
   return options.find((o) => sameValue(o.value, value)) ?? options.find((o) => resolve(prop, o.value) === resolved);
 }

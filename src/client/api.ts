@@ -13,7 +13,7 @@ export const api = {
   write: (edits: Edit[]) => post<WriteResult>("write", { edits }),
   undo: () => post<UndoResult>("undo", {}),
   text: (before: string, after: string, choice?: { file: string; start: number }) => post<TextResult>("text", { before, after, choice }),
-  status: async (): Promise<{ root: string; undo: number }> => (await fetch(base + "status")).json(),
+  status: async (): Promise<{ root: string; undo: number; protocol?: number }> => (await fetch(base + "status")).json(),
   /** Vite's own endpoint for opening a file at a line in the developer's editor. */
   open: (file: string, line: number) => fetch(`/__open-in-editor?file=${encodeURIComponent(`${file}:${line}`)}`),
 };

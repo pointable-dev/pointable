@@ -1,6 +1,6 @@
 import postcss, { type AtRule, type Declaration, type Rule, type ChildNode, type Container } from "postcss";
-import type { PathSeg, Target } from "../shared/types.ts";
-import { normalizeCompiled, normalizeParams, normalizeSource, pathKey } from "../shared/selectors.ts";
+import type { NewRule, PathSeg, Target } from "../shared/types.ts";
+import { normalizeCompiled, normalizeParams, normalizeSource, pathKey, splitList } from "../shared/selectors.ts";
 import type { Region } from "./source.ts";
 
 /** Where to change text in a region: replace `[start, end)` with `text`. Offsets are within the region. */
@@ -13,6 +13,8 @@ export interface Splice {
 export interface Found {
   rule: Rule;
   decl: Declaration | null;
+  /** The rule doesn't exist yet: write `selector { … }` right after `rule`. */
+  create?: { selector: string };
   /** 1-based line in the file. */
   line: number;
   /** The source value as written, when declared. */
@@ -107,6 +109,18 @@ export function locate(reg: Region, target: Target): Found | string {
 /** The change that sets `property: value` in the found rule, keeping the file's own formatting. */
 export function splice(reg: Region, found: Found, property: string, value: string): Splice {
   const { rule, decl } = found;
+  if (found.create) {
+    // A new rule right after the outer one, laid out the way that one is.
+    const start = rule.source!.start!.offset;
+    const end = rule.source!.end!.offset;
+    const lineStart = reg.css.lastIndexOf("\n", start - 1) + 1;
+    const indent = /^[ \t]*/.exec(reg.css.slice(lineStart, start))![0];
+    const single = !reg.css.slice(start, end).includes("\n");
+    const text = single
+      ? `\n${indent}${found.create.selector} { ${property}: ${value}; }`
+      : `\n\n${indent}${found.create.selector} {\n${indent}  ${property}: ${value};\n${indent}}`;
+    return { start: end, end, text };
+  }
   if (decl) {
     const start = decl.source!.start!.offset + decl.prop.length + (decl.raws.between ?? ":").length;
     return { start, end: start + rawValue(decl).length, text: value };
@@ -129,4 +143,32 @@ export function splice(reg: Region, found: Found, property: string, value: strin
   const before = String(last.raws.before ?? "\n  ");
   const indent = before.slice(before.lastIndexOf("\n") + 1);
   return { start: at, end: at, text: `${semicolon}\n${indent}${text}` };
+}
+
+/** The selector a new rule gets, in source terms: the outer rule's matching part, then the element. */
+export function newSelector(outer: Rule, create: NewRule): string {
+  const want = normalizeCompiled(create.part);
+  const parts = splitList(outer.selector);
+  const part = parts.find((p) => normalizeSource(p) === want) ?? parts[0];
+  const tail = create.wrap === "global" ? `:global(${create.tail})` : create.wrap === "deep" ? `:deep(${create.tail})` : create.tail;
+  return `${part} ${tail}`;
+}
+
+/**
+ * For a target with `create`: the rule it asks for if it is already written beside the outer rule
+ * (an earlier save made it), or where to write it.
+ */
+export function locateNew(reg: Region, outerFound: Found, target: Target): Found {
+  const outer = outerFound.rule;
+  const selector = newSelector(outer, target.create!);
+  const key = normalizeSource(selector);
+  const siblings = (outer.parent?.nodes ?? []).filter((n): n is Rule => n.type === "rule" && normalizeSource(n.selector) === key);
+  const rule = siblings[siblings.length - 1];
+  if (rule) {
+    const decl = declIn(rule, target.property);
+    const node: ChildNode = decl ?? rule;
+    return { rule, decl, line: reg.line + (node.source?.start?.line ?? 1) - 1, value: decl ? rawValue(decl) : null };
+  }
+  const single = !reg.css.slice(outer.source!.start!.offset, outer.source!.end!.offset).includes("\n");
+  return { rule: outer, decl: null, value: null, create: { selector }, line: reg.line + (outer.source?.end?.line ?? 1) - 1 + (single ? 1 : 2) };
 }

@@ -17,6 +17,8 @@ export interface Hit {
 /** A rule that applies to an element, with how strongly. */
 export interface Match extends Hit {
   specificity: Specificity;
+  /** The part of a selector list that matched, e.g. `.card img` of `.card img, .tile img`. */
+  part: string;
 }
 
 function devIdOf(sheet: CSSStyleSheet): string | null {
@@ -75,16 +77,18 @@ export function collect(): Hit[] {
 }
 
 /** The specificity with which a rule applies to an element, or null if it does not. */
-function applies(el: Element, rule: CSSStyleRule): Specificity | null {
-  let best: Specificity | null = null;
+function applies(el: Element, rule: CSSStyleRule): { specificity: Specificity; part: string } | null {
+  let best: { specificity: Specificity; part: string } | null = null;
   for (const part of splitList(rule.selectorText)) {
+    // States the pointer or keyboard happen to be in right now aren't the element's own style.
+    if (/:(hover|active|focus|focus-within|focus-visible)\b/.test(part)) continue;
     try {
       if (!el.matches(part)) continue;
     } catch {
       continue; // pseudo-elements and selectors the browser cannot test
     }
     const s = specificity(part);
-    if (!best || compare(s, best) > 0) best = s;
+    if (!best || compare(s, best.specificity) > 0) best = { specificity: s, part };
   }
   return best;
 }
@@ -94,8 +98,8 @@ export function matching(el: Element, hits: Hit[]): Match[] {
   const out: Match[] = [];
   for (const h of hits) {
     if (!h.active) continue;
-    const s = applies(el, h.rule);
-    if (s) out.push({ ...h, specificity: s });
+    const a = applies(el, h.rule);
+    if (a) out.push({ ...h, ...a });
   }
   return out.sort((a, b) => compare(a.specificity, b.specificity) || a.order - b.order);
 }
@@ -145,6 +149,11 @@ export function firstVar(value: string): string | null {
 }
 
 /** A short readable name for an element: tag, id or first class. */
+/** A class that names the element (not one a framework generated), or null. */
+export function ownClass(el: Element): string | null {
+  return Array.from(el.classList).find((c) => !/^astro-|^svelte-|^data-|^is-|^has-/.test(c)) ?? null;
+}
+
 export function describe(el: Element): string {
   const tag = el.tagName.toLowerCase();
   if (el.id) return `${tag}#${el.id}`;

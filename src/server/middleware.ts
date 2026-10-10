@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Store } from "./store.ts";
+import { PROTOCOL } from "../shared/types.ts";
 
 type Next = (err?: unknown) => void;
 
@@ -96,7 +97,7 @@ export function middleware(opts: { root: string; base: string; dir: string; clie
         res.setHeader("cache-control", "no-store");
         return res.end(await readFile(file));
       }
-      if (req.method === "GET" && route === "status") return json(res, 200, { root: opts.root, undo: store.canUndo });
+      if (req.method === "GET" && route === "status") return json(res, 200, { root: opts.root, undo: store.canUndo, protocol: PROTOCOL });
       if (req.method !== "POST") return json(res, 405, { error: "method not allowed" });
       if (!sameOrigin(req)) return json(res, 403, { error: "cross-origin request refused" });
 
