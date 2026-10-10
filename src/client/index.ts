@@ -1,10 +1,11 @@
 import { styles } from "./styles.ts";
-import { collect, describe, firstVar, matching, ownClass, rootTokens, target, tokenSource, winner, type Hit, type Match } from "./cssom.ts";
+import { collect, describe, firstVar, matching, namesElement, ownClass, rootTokens, target, tokenSource, winner, type Hit, type Match } from "./cssom.ts";
 import { nudge } from "./numbers.ts";
 import { api } from "./api.ts";
 import { BOX_ROWS, IMAGE_ROWS, TEXT_ROWS, currentOption, optionsFor, pretty, resolve, type Option, type RowSpec } from "./options.ts";
 import { PROTOCOL, type Location, type NewRule, type Target, type TextCandidate, type WriteResult } from "../shared/types.ts";
 import { normalizeCompiled } from "../shared/selectors.ts";
+import { compare, specificity } from "../shared/specificity.ts";
 
 type Child = Node | string | null | undefined | false;
 function h<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Record<string, any> = {}, ...children: Child[]): HTMLElementTagNameMap[K] {
@@ -77,6 +78,9 @@ function elementPath(el: Element): string {
   }
   return ["body", ...parts].join(" > ");
 }
+
+/** A selector spaced for reading: `.a>b` → `.a > b`. */
+const readable = (selector: string) => selector.replace(/\s*([>+~])\s*/g, " $1 ").replace(/,\s*/g, ", ").replace(/\s+/g, " ").trim();
 
 /** The text position under a point, in whichever form the browser offers it. */
 function caretAt(x: number, y: number): { node: Node; offset: number } | null {
@@ -302,7 +306,7 @@ class Pointable extends HTMLElement {
     const matches = matchesOf(el);
     const cs = getComputedStyle(el);
     const tokens = rootTokens(hits);
-    const own = [...matches].reverse().find((m) => m.specificity[0] + m.specificity[1] > 0) ?? (el === document.documentElement || el === document.body ? matches[matches.length - 1] : undefined);
+    const own = [...matches].reverse().find((m) => m.specificity[0] + m.specificity[1] > 0 && namesElement(el, m.part)) ?? (el === document.documentElement || el === document.body ? matches[matches.length - 1] : undefined);
     const fresh = own ? null : this.newRuleFor(el, matchesOf);
     const bindings: Binding[] = [];
     const tag = el.tagName.toLowerCase();
@@ -336,7 +340,7 @@ class Pointable extends HTMLElement {
 
     const where = fresh
       ? `Saves to a new rule, ${fresh.label}, for ${fresh.count === 1 ? "this element" : `these ${fresh.count} elements`}`
-      : own ? `Saves to ${normalizeCompiled(own.rule.selectorText).replace(/([>+~,])/g, " $1 ").replace(/\s+/g, " ")}` : "Nothing styles this element directly yet. Select the element around it.";
+      : own ? `Saves to ${readable(normalizeCompiled(own.part))}` : "Nothing styles this element directly yet. Select the element around it.";
     parts.push(h("div", { class: "foot" }, h("span", { class: "where", text: where, title: where }), this.undoButton));
 
     this.locate(bindings);
@@ -358,7 +362,14 @@ class Pointable extends HTMLElement {
     const w = winner(matches, prop);
     const specified = w ? w.rule.style.getPropertyValue(prop).trim() : "";
     const computed = cs.getPropertyValue(prop).trim();
-    const writeTo = w ?? own;
+    // A value set by a broad rule (`.prose > *`) is changed in the element's own rule instead, as long as that one wins.
+    const specific = own ?? fresh?.outer;
+    const ownWins = (() => {
+      if (!w || namesElement(el, w.part) || !specific) return false;
+      const mine = own ? own.specificity : specificity(`${fresh!.create.part} ${fresh!.create.tail}`);
+      return compare(mine, w.specificity) > 0 || (compare(mine, w.specificity) === 0 && specific.order > w.order);
+    })();
+    const writeTo = w && !ownWins ? w : own;
     const row = h("div", { class: "row" }, h("span", { class: "label", text: spec.label }));
 
     if (!writeTo && !fresh) {
@@ -376,7 +387,11 @@ class Pointable extends HTMLElement {
     }
 
     const options = optionsFor(prop, kind, specified || computed, tokens);
-    const b: Binding = { t: writeTo ? target(writeTo, prop) : { ...target(fresh!.outer, prop), create: fresh!.create }, base: specified, value: specified || computed };
+    const b: Binding = {
+      t: writeTo ? target(writeTo, prop) : { ...target(fresh!.outer, prop), create: fresh!.create },
+      base: writeTo === w ? specified : "",
+      value: specified || computed,
+    };
     bindings.push(b);
 
     // The token behind the value, if any: the dropdown can change it everywhere.
@@ -717,7 +732,7 @@ class Pointable extends HTMLElement {
   private newRuleFor(el: Element, matchesOf: (n: Element) => Match[]): { outer: Match; create: NewRule; label: string; count: number } | null {
     if (el === document.body || el === document.documentElement) return null;
     for (let p = el.parentElement; p && p !== document.documentElement; p = p.parentElement) {
-      const candidates = matchesOf(p).filter((m) => m.specificity[0] + m.specificity[1] > 0 && !m.path.some((s) => s.kind === "at"));
+      const candidates = matchesOf(p).filter((m) => m.specificity[0] + m.specificity[1] > 0 && !m.path.some((s) => s.kind === "at") && namesElement(p!, m.part));
       const outer = candidates[candidates.length - 1];
       if (!outer) continue;
       const cls = ownClass(el);
@@ -733,7 +748,7 @@ class Pointable extends HTMLElement {
       try {
         count = document.querySelectorAll(`${outer.part} ${tail}`).length || 1;
       } catch {}
-      return { outer, create: { part: outer.part, tail, wrap }, label: `${normalizeCompiled(outer.part)} ${tail}`, count };
+      return { outer, create: { part: outer.part, tail, wrap }, label: readable(`${normalizeCompiled(outer.part)} ${tail}`), count };
     }
     return null;
   }

@@ -149,6 +149,17 @@ export function firstVar(value: string): string | null {
 }
 
 /** A short readable name for an element: tag, id or first class. */
+/**
+ * Does the rule name this element itself, rather than catching it in a broad net like `.prose > *`?
+ * Only such a rule is the element's own place to add a style.
+ */
+export function namesElement(el: Element, part: string): boolean {
+  const last = part.trim().split(/\s*[\s>+~]\s*/).pop() ?? "";
+  if (el.id && last.includes(`#${el.id}`)) return true;
+  if (Array.from(el.classList).some((c) => new RegExp(`\\.${c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`).test(last))) return true;
+  return new RegExp(`^${el.tagName}(?![\\w-])`, "i").test(last);
+}
+
 /** A class that names the element (not one a framework generated), or null. */
 export function ownClass(el: Element): string | null {
   return Array.from(el.classList).find((c) => !/^astro-|^svelte-|^data-|^is-|^has-/.test(c)) ?? null;
